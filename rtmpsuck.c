@@ -43,24 +43,24 @@
 #include <linux/netfilter_ipv4.h>
 #endif
 
-#define RD_SUCCESS		0
-#define RD_FAILED		1
-#define RD_INCOMPLETE		2
+#define RD_SUCCESS                0
+#define RD_FAILED                1
+#define RD_INCOMPLETE                2
 
 #define PACKET_SIZE 1024*1024
 
 #ifdef WIN32
-#define InitSockets()	{\
-        WORD version;			\
-        WSADATA wsaData;		\
-					\
-        version = MAKEWORD(1,1);	\
-        WSAStartup(version, &wsaData);	}
+#define InitSockets()        {\
+        WORD version;                        \
+        WSADATA wsaData;                \
+                                        \
+        version = MAKEWORD(1,1);        \
+        WSAStartup(version, &wsaData);        }
 
-#define	CleanupSockets()	WSACleanup()
+#define        CleanupSockets()        WSACleanup()
 #else
 #define InitSockets()
-#define	CleanupSockets()
+#define        CleanupSockets()
 #endif
 
 enum
@@ -91,19 +91,19 @@ typedef struct
   uint32_t stamp;
   RTMP rs;
   RTMP rc;
-  Plist *rs_pkt[2];	/* head, tail */
-  Plist *rc_pkt[2];	/* head, tail */
+  Plist *rs_pkt[2];        /* head, tail */
+  Plist *rc_pkt[2];        /* head, tail */
   Flist *f_head, *f_tail;
   Flist *f_cur;
 
 } STREAMING_SERVER;
 
-STREAMING_SERVER *rtmpServer = 0;	// server structure pointer
+STREAMING_SERVER *rtmpServer = 0;        // server structure pointer
 
 STREAMING_SERVER *startStreaming(const char *address, int port);
 void stopStreaming(STREAMING_SERVER * server);
 
-#define STR2AVAL(av,str)	av.av_val = str; av.av_len = strlen(av.av_val)
+#define STR2AVAL(av,str)        av.av_val = str; av.av_len = strlen(av.av_val)
 
 #ifdef _DEBUG
 uint32_t debugTS = 0;
@@ -114,7 +114,7 @@ FILE *netstackdump = NULL;
 FILE *netstackdump_read = NULL;
 #endif
 
-#define BUFFERTIME	(4*60*60*1000)	/* 4 hours */
+#define BUFFERTIME        (10*60*60*1000)        /* 10 hours */
 
 #define SAVC(x) static const AVal av_##x = AVC(#x)
 
@@ -150,8 +150,11 @@ AVC("NetConnection.Connect.InvalidApp");
 static const AVal av_NetStream_Play_Start = AVC("NetStream.Play.Start");
 static const AVal av_NetStream_Play_Complete = AVC("NetStream.Play.Complete");
 static const AVal av_NetStream_Play_Stop = AVC("NetStream.Play.Stop");
+static const AVal av_conn = AVC("conn");
 
 static const char *cst[] = { "client", "server" };
+
+AVal tcUrl, extra, pageUrl;
 
 // Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
 int
@@ -163,10 +166,10 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
   if (body > pack->m_body)
     nBodySize--;
 
-  if (body[0] != 0x02)		// make sure it is a string method name we start with
+  if (body[0] != 0x02)                // make sure it is a string method name we start with
     {
       RTMP_Log(RTMP_LOGWARNING, "%s, Sanity failed. no string method in invoke packet",
-	  __FUNCTION__);
+          __FUNCTION__);
       return 0;
     }
 
@@ -214,14 +217,17 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             {
 #ifdef CRYPTO
               if (pval.av_val)
-	        RTMP_HashSWF(pval.av_val, &server->rc.Link.SWFSize,
-		  (unsigned char *)server->rc.Link.SWFHash, 30);
+                RTMP_HashSWF(pval.av_val, &server->rc.Link.SWFSize,
+                  (unsigned char *)server->rc.Link.SWFHash, 30);
 #endif
               server->rc.Link.swfUrl = pval;
               pval.av_val = NULL;
             }
           else if (AVMATCH(&pname, &av_tcUrl))
             {
+              tcUrl.av_len = pval.av_len;
+              tcUrl.av_val = malloc(pval.av_len);
+              memcpy(tcUrl.av_val, pval.av_val, tcUrl.av_len);
               char *r1 = NULL, *r2;
               int len;
 
@@ -242,10 +248,10 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
                       r1 = pval.av_val+8;
                     }
                   r2 = strchr(r1, '/');
-		  if (r2)
+                  if (r2)
                     len = r2 - r1;
-		  else
-		    len = pval.av_len - (r1 - pval.av_val);
+                  else
+                    len = pval.av_len - (r1 - pval.av_val);
                   r2 = malloc(len+1);
                   memcpy(r2, r1, len);
                   r2[len] = '\0';
@@ -253,13 +259,13 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
                   r1 = strrchr(r2, ':');
                   if (r1)
                     {
-		      server->rc.Link.hostname.av_len = r1 - r2;
+                      server->rc.Link.hostname.av_len = r1 - r2;
                       *r1++ = '\0';
                       server->rc.Link.port = atoi(r1);
                     }
                   else
                     {
-		      server->rc.Link.hostname.av_len = len;
+                      server->rc.Link.hostname.av_len = len;
                       server->rc.Link.port = 1935;
                     }
                 }
@@ -267,6 +273,9 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             }
           else if (AVMATCH(&pname, &av_pageUrl))
             {
+              pageUrl.av_len = pval.av_len;
+              pageUrl.av_val = malloc(pval.av_len);
+              memcpy(pageUrl.av_val, pval.av_val, pageUrl.av_len);
               server->rc.Link.pageUrl = pval;
               pval.av_val = NULL;
             }
@@ -287,6 +296,23 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
           if (pval.av_val)
             free(pval.av_val);
         }
+
+      if (obj.o_num >= 3)
+        {
+          AVal extra_tmp;
+        AMFProp_GetString(AMF_GetProp(&obj, NULL, 3), &extra_tmp);
+        int len;
+        len = extra_tmp.av_len + 2;
+        extra.av_val = malloc(len);
+        extra.av_len = snprintf(extra.av_val, len,
+                               "S:%.*s", extra_tmp.av_len, extra_tmp.av_val);
+        if (!RTMP_SetOpt(&server->rc, &av_conn, &extra))
+          {
+            RTMP_Log(RTMP_LOGERROR, "Invalid AMF parameter: %s", optarg);
+            return RD_FAILED;
+          }
+        }
+
       if (obj.o_num > 3)
         {
           if (AMFProp_GetBoolean(&obj.o_props[3]))
@@ -333,16 +359,16 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
       q = memchr(av.av_val, '?', av.av_len);
       if (q)
         {
-	  if (q == av.av_val)
-	    {
-	      av.av_val++;
-	      av.av_len--;
-	    }
-	  else
-	    {
+          if (q == av.av_val)
+            {
+              av.av_val++;
+              av.av_len--;
+            }
+          else
+            {
               av.av_len = q - av.av_val;
-	    }
-	}
+            }
+        }
       /* strip leading slash components */
       for (p=av.av_val+av.av_len-1; p>=av.av_val; p--)
         if (*p == '/')
@@ -375,6 +401,16 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
       RTMP_LogPrintf("Playpath: %.*s\nSaving as: %s\n",
         server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
         file);
+
+      // Print rtmpdump command
+      RTMP_LogPrintf("rtmpdump command\n");
+      RTMP_LogPrintf("rtmpdump -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
+        tcUrl.av_len, tcUrl.av_val,
+        server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
+        extra.av_len, extra.av_val,
+        pageUrl.av_len, pageUrl.av_val,
+        file);
+      
       out = fopen(file, "wb");
       free(file);
       if (!out)
@@ -407,35 +443,35 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
 
       RTMP_Log(RTMP_LOGDEBUG, "%s, onStatus: %s", __FUNCTION__, code.av_val);
       if (AVMATCH(&code, &av_NetStream_Failed)
-	  || AVMATCH(&code, &av_NetStream_Play_Failed)
-	  || AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
-	  || AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
-	{
-	  ret = 1;
-	}
+          || AVMATCH(&code, &av_NetStream_Play_Failed)
+          || AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
+          || AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
+        {
+          ret = 1;
+        }
 
       if (AVMATCH(&code, &av_NetStream_Play_Start))
-	{
+        {
           /* set up the next stream */
           if (server->f_cur)
-		    {
-		      if (server->f_cur->f_next)
+                    {
+                      if (server->f_cur->f_next)
                 server->f_cur = server->f_cur->f_next;
-			}
+                        }
           else
             {
               for (server->f_cur = server->f_head; server->f_cur &&
                     !server->f_cur->f_file; server->f_cur = server->f_cur->f_next) ;
             }
-	  server->rc.m_bPlaying = TRUE;
-	}
+          server->rc.m_bPlaying = TRUE;
+        }
 
       // Return 1 if this is a Play.Complete or Play.Stop
       if (AVMATCH(&code, &av_NetStream_Play_Complete)
-	  || AVMATCH(&code, &av_NetStream_Play_Stop))
-	{
-	  ret = 1;
-	}
+          || AVMATCH(&code, &av_NetStream_Play_Stop))
+        {
+          ret = 1;
+        }
     }
   else if (AVMATCH(&method, &av_closeStream))
     {
@@ -506,8 +542,8 @@ ServePacket(STREAMING_SERVER *server, int which, RTMPPacket *packet)
     case RTMP_PACKET_TYPE_FLEX_MESSAGE:
       // flex message
       {
-	ret = ServeInvoke(server, which, packet, packet->m_body + 1);
-	break;
+        ret = ServeInvoke(server, which, packet, packet->m_body + 1);
+        break;
       }
     case RTMP_PACKET_TYPE_INFO:
       // metadata (notify)
@@ -524,11 +560,11 @@ ServePacket(STREAMING_SERVER *server, int which, RTMPPacket *packet)
 
     case RTMP_PACKET_TYPE_FLASH_VIDEO:
       /* flv */
-	break;
+        break;
 
     default:
       RTMP_Log(RTMP_LOGDEBUG, "%s, unknown packet type received: 0x%02x", __FUNCTION__,
-	  packet->m_packetType);
+          packet->m_packetType);
 #ifdef _DEBUG
       RTMP_LogHex(RTMP_LOGDEBUG, packet->m_body, packet->m_nBodySize);
 #endif
@@ -537,8 +573,8 @@ ServePacket(STREAMING_SERVER *server, int which, RTMPPacket *packet)
 }
 
 int
-WriteStream(char **buf,	// target pointer, maybe preallocated
-	    unsigned int *plen,	// length of buffer if preallocated
+WriteStream(char **buf,        // target pointer, maybe preallocated
+            unsigned int *plen,        // length of buffer if preallocated
             uint32_t *nTimeStamp,
             RTMPPacket *packet)
 {
@@ -552,53 +588,53 @@ WriteStream(char **buf,	// target pointer, maybe preallocated
 
       // skip video info/command packets
       if (packet->m_packetType == RTMP_PACKET_TYPE_VIDEO &&
-	  nPacketLen == 2 && ((*packetBody & 0xf0) == 0x50))
-	{
-	  ret = 0;
-	  break;
-	}
+          nPacketLen == 2 && ((*packetBody & 0xf0) == 0x50))
+        {
+          ret = 0;
+          break;
+        }
 
       if (packet->m_packetType == RTMP_PACKET_TYPE_VIDEO && nPacketLen <= 5)
-	{
-	  RTMP_Log(RTMP_LOGWARNING, "ignoring too small video packet: size: %d",
-	      nPacketLen);
-	  ret = 0;
-	  break;
-	}
+        {
+          RTMP_Log(RTMP_LOGWARNING, "ignoring too small video packet: size: %d",
+              nPacketLen);
+          ret = 0;
+          break;
+        }
       if (packet->m_packetType == RTMP_PACKET_TYPE_AUDIO && nPacketLen <= 1)
-	{
-	  RTMP_Log(RTMP_LOGWARNING, "ignoring too small audio packet: size: %d",
-	      nPacketLen);
-	  ret = 0;
-	  break;
-	}
+        {
+          RTMP_Log(RTMP_LOGWARNING, "ignoring too small audio packet: size: %d",
+              nPacketLen);
+          ret = 0;
+          break;
+        }
 #ifdef _DEBUG
       RTMP_Log(RTMP_LOGDEBUG, "type: %02X, size: %d, TS: %d ms", packet->m_packetType,
-	  nPacketLen, packet->m_nTimeStamp);
+          nPacketLen, packet->m_nTimeStamp);
       if (packet->m_packetType == RTMP_PACKET_TYPE_VIDEO)
-	RTMP_Log(RTMP_LOGDEBUG, "frametype: %02X", (*packetBody & 0xf0));
+        RTMP_Log(RTMP_LOGDEBUG, "frametype: %02X", (*packetBody & 0xf0));
 #endif
 
       // calculate packet size and reallocate buffer if necessary
       unsigned int size = nPacketLen
-	+
-	((packet->m_packetType == RTMP_PACKET_TYPE_AUDIO
+        +
+        ((packet->m_packetType == RTMP_PACKET_TYPE_AUDIO
           || packet->m_packetType == RTMP_PACKET_TYPE_VIDEO
-	  || packet->m_packetType == RTMP_PACKET_TYPE_INFO) ? 11 : 0)
+          || packet->m_packetType == RTMP_PACKET_TYPE_INFO) ? 11 : 0)
         + (packet->m_packetType != 0x16 ? 4 : 0);
 
       if (size + 4 > len)
-	{
+        {
           /* The extra 4 is for the case of an FLV stream without a last
            * prevTagSize (we need extra 4 bytes to append it).  */
-	  *buf = (char *) realloc(*buf, size + 4);
-	  if (*buf == 0)
-	    {
-	      RTMP_Log(RTMP_LOGERROR, "Couldn't reallocate memory!");
-	      ret = -1;		// fatal error
-	      break;
-	    }
-	}
+          *buf = (char *) realloc(*buf, size + 4);
+          if (*buf == 0)
+            {
+              RTMP_Log(RTMP_LOGERROR, "Couldn't reallocate memory!");
+              ret = -1;                // fatal error
+              break;
+            }
+        }
       char *ptr = *buf, *pend = ptr + size+4;
 
       /* audio (RTMP_PACKET_TYPE_AUDIO), video (RTMP_PACKET_TYPE_VIDEO)
@@ -606,97 +642,97 @@ WriteStream(char **buf,	// target pointer, maybe preallocated
        * header then add rtmp packet's data.  */
       if (packet->m_packetType == RTMP_PACKET_TYPE_AUDIO
           || packet->m_packetType == RTMP_PACKET_TYPE_VIDEO
-	  || packet->m_packetType == RTMP_PACKET_TYPE_INFO)
-	{
-	  // set data type
-	  //*dataType |= (((packet->m_packetType == RTMP_PACKET_TYPE_AUDIO)<<2)|(packet->m_packetType == RTMP_PACKET_TYPE_VIDEO));
+          || packet->m_packetType == RTMP_PACKET_TYPE_INFO)
+        {
+          // set data type
+          //*dataType |= (((packet->m_packetType == RTMP_PACKET_TYPE_AUDIO)<<2)|(packet->m_packetType == RTMP_PACKET_TYPE_VIDEO));
 
-	  (*nTimeStamp) = packet->m_nTimeStamp;
-	  prevTagSize = 11 + nPacketLen;
+          (*nTimeStamp) = packet->m_nTimeStamp;
+          prevTagSize = 11 + nPacketLen;
 
-	  *ptr++ = packet->m_packetType;
-	  ptr = AMF_EncodeInt24(ptr, pend, nPacketLen);
-	  ptr = AMF_EncodeInt24(ptr, pend, *nTimeStamp);
-	  *ptr = (char) (((*nTimeStamp) & 0xFF000000) >> 24);
-	  ptr++;
+          *ptr++ = packet->m_packetType;
+          ptr = AMF_EncodeInt24(ptr, pend, nPacketLen);
+          ptr = AMF_EncodeInt24(ptr, pend, *nTimeStamp);
+          *ptr = (char) (((*nTimeStamp) & 0xFF000000) >> 24);
+          ptr++;
 
-	  // stream id
-	  ptr = AMF_EncodeInt24(ptr, pend, 0);
-	}
+          // stream id
+          ptr = AMF_EncodeInt24(ptr, pend, 0);
+        }
 
       memcpy(ptr, packetBody, nPacketLen);
       unsigned int len = nPacketLen;
 
       // correct tagSize and obtain timestamp if we have an FLV stream
       if (packet->m_packetType == RTMP_PACKET_TYPE_FLASH_VIDEO)
-	{
-	  unsigned int pos = 0;
+        {
+          unsigned int pos = 0;
 
-	  while (pos + 11 < nPacketLen)
-	    {
-	      uint32_t dataSize = AMF_DecodeInt24(packetBody + pos + 1);	// size without header (11) and without prevTagSize (4)
-	      *nTimeStamp = AMF_DecodeInt24(packetBody + pos + 4);
-	      *nTimeStamp |= (packetBody[pos + 7] << 24);
+          while (pos + 11 < nPacketLen)
+            {
+              uint32_t dataSize = AMF_DecodeInt24(packetBody + pos + 1);        // size without header (11) and without prevTagSize (4)
+              *nTimeStamp = AMF_DecodeInt24(packetBody + pos + 4);
+              *nTimeStamp |= (packetBody[pos + 7] << 24);
 
 #if 0
-	      /* set data type */
-	      *dataType |= (((*(packetBody+pos) == RTMP_PACKET_TYPE_AUDIO) << 2)
+              /* set data type */
+              *dataType |= (((*(packetBody+pos) == RTMP_PACKET_TYPE_AUDIO) << 2)
                             | (*(packetBody+pos) == RTMP_PACKET_TYPE_VIDEO));
 #endif
 
-	      if (pos + 11 + dataSize + 4 > nPacketLen)
-		{
-		  if (pos + 11 + dataSize > nPacketLen)
-		    {
-		      RTMP_Log(RTMP_LOGERROR,
-			  "Wrong data size (%u), stream corrupted, aborting!",
-			  dataSize);
-		      ret = -2;
-		      break;
-		    }
-		  RTMP_Log(RTMP_LOGWARNING, "No tagSize found, appending!");
+              if (pos + 11 + dataSize + 4 > nPacketLen)
+                {
+                  if (pos + 11 + dataSize > nPacketLen)
+                    {
+                      RTMP_Log(RTMP_LOGERROR,
+                          "Wrong data size (%u), stream corrupted, aborting!",
+                          dataSize);
+                      ret = -2;
+                      break;
+                    }
+                  RTMP_Log(RTMP_LOGWARNING, "No tagSize found, appending!");
 
-		  // we have to append a last tagSize!
-		  prevTagSize = dataSize + 11;
-		  AMF_EncodeInt32(ptr + pos + 11 + dataSize, pend, prevTagSize);
-		  size += 4;
-		  len += 4;
-		}
-	      else
-		{
-		  prevTagSize =
-		    AMF_DecodeInt32(packetBody + pos + 11 + dataSize);
+                  // we have to append a last tagSize!
+                  prevTagSize = dataSize + 11;
+                  AMF_EncodeInt32(ptr + pos + 11 + dataSize, pend, prevTagSize);
+                  size += 4;
+                  len += 4;
+                }
+              else
+                {
+                  prevTagSize =
+                    AMF_DecodeInt32(packetBody + pos + 11 + dataSize);
 
 #ifdef _DEBUG
-		  RTMP_Log(RTMP_LOGDEBUG,
-		      "FLV Packet: type %02X, dataSize: %lu, tagSize: %lu, timeStamp: %lu ms",
-		      (unsigned char) packetBody[pos], dataSize, prevTagSize,
-		      *nTimeStamp);
+                  RTMP_Log(RTMP_LOGDEBUG,
+                      "FLV Packet: type %02X, dataSize: %lu, tagSize: %lu, timeStamp: %lu ms",
+                      (unsigned char) packetBody[pos], dataSize, prevTagSize,
+                      *nTimeStamp);
 #endif
 
-		  if (prevTagSize != (dataSize + 11))
-		    {
+                  if (prevTagSize != (dataSize + 11))
+                    {
 #ifdef _DEBUG
-		      RTMP_Log(RTMP_LOGWARNING,
-			  "Tag and data size are not consitent, writing tag size according to dataSize+11: %d",
-			  dataSize + 11);
+                      RTMP_Log(RTMP_LOGWARNING,
+                          "Tag and data size are not consitent, writing tag size according to dataSize+11: %d",
+                          dataSize + 11);
 #endif
 
-		      prevTagSize = dataSize + 11;
-		      AMF_EncodeInt32(ptr + pos + 11 + dataSize, pend, prevTagSize);
-		    }
-		}
+                      prevTagSize = dataSize + 11;
+                      AMF_EncodeInt32(ptr + pos + 11 + dataSize, pend, prevTagSize);
+                    }
+                }
 
-	      pos += prevTagSize + 4;	//(11+dataSize+4);
-	    }
-	}
+              pos += prevTagSize + 4;        //(11+dataSize+4);
+            }
+        }
       ptr += len;
 
       if (packet->m_packetType != RTMP_PACKET_TYPE_FLASH_VIDEO)
-	{			// FLV tag packets contain their own prevTagSize
-	  AMF_EncodeInt32(ptr, pend, prevTagSize);
-	  //ptr += 4;
-	}
+        {                        // FLV tag packets contain their own prevTagSize
+          AMF_EncodeInt32(ptr, pend, prevTagSize);
+          //ptr += 4;
+        }
 
       ret = size;
       break;
@@ -705,7 +741,7 @@ WriteStream(char **buf,	// target pointer, maybe preallocated
   if (len > *plen)
     *plen = len;
 
-  return ret;			// no more media packets
+  return ret;                        // no more media packets
 }
 
 TFTYPE
@@ -716,21 +752,21 @@ controlServerThread(void *unused)
     {
       ich = getchar();
       switch (ich)
-	{
-	case 'q':
-	  RTMP_LogPrintf("Exiting\n");
-	  stopStreaming(rtmpServer);
+        {
+        case 'q':
+          RTMP_LogPrintf("Exiting\n");
+          stopStreaming(rtmpServer);
           free(rtmpServer);
-	  exit(0);
-	  break;
-	default:
-	  RTMP_LogPrintf("Unknown command \'%c\', ignoring\n", ich);
-	}
+          exit(0);
+          break;
+        default:
+          RTMP_LogPrintf("Unknown command \'%c\', ignoring\n", ich);
+        }
     }
   TFRET();
 }
 
-TFTYPE doServe(void *arg)	// server socket and state (our listening socket)
+TFTYPE doServe(void *arg)        // server socket and state (our listening socket)
 {
   STREAMING_SERVER *server = arg;
   RTMPPacket pc = { 0 }, ps = { 0 };
@@ -801,20 +837,20 @@ TFTYPE doServe(void *arg)	// server socket and state (our listening socket)
       else
         {
           n = server->rs.m_sb.sb_socket;
-	  if (server->rc.m_sb.sb_socket > n)
-	    n = server->rc.m_sb.sb_socket;
-	  FD_ZERO(&rfds);
-	  if (RTMP_IsConnected(&server->rs))
-	    FD_SET(sockfd, &rfds);
-	  if (RTMP_IsConnected(&server->rc))
-	    FD_SET(server->rc.m_sb.sb_socket, &rfds);
+          if (server->rc.m_sb.sb_socket > n)
+            n = server->rc.m_sb.sb_socket;
+          FD_ZERO(&rfds);
+          if (RTMP_IsConnected(&server->rs))
+            FD_SET(sockfd, &rfds);
+          if (RTMP_IsConnected(&server->rc))
+            FD_SET(server->rc.m_sb.sb_socket, &rfds);
 
           /* give more time to start up if we're not playing yet */
-	  tv.tv_sec = server->f_cur ? 30 : 60;
-	  tv.tv_usec = 0;
+          tv.tv_sec = server->f_cur ? 30 : 60;
+          tv.tv_usec = 0;
 
-	  if (select(n + 1, &rfds, NULL, NULL, &tv) <= 0)
-	    {
+          if (select(n + 1, &rfds, NULL, NULL, &tv) <= 0)
+            {
               if (server->f_cur && server->rc.m_mediaChannel && !paused)
                 {
                   server->rc.m_pauseStamp = server->rc.m_channelTimestamp[server->rc.m_mediaChannel];
@@ -824,14 +860,14 @@ TFTYPE doServe(void *arg)	// server socket and state (our listening socket)
                       continue;
                     }
                 }
-	      RTMP_Log(RTMP_LOGERROR, "Request timeout/select failed, ignoring request");
-	      goto cleanup;
-	    }
+              RTMP_Log(RTMP_LOGERROR, "Request timeout/select failed, ignoring request");
+              goto cleanup;
+            }
           if (server->rs.m_sb.sb_socket > 0 &&
-	    FD_ISSET(server->rs.m_sb.sb_socket, &rfds))
+            FD_ISSET(server->rs.m_sb.sb_socket, &rfds))
             sr = 1;
           if (server->rc.m_sb.sb_socket > 0 &&
-	    FD_ISSET(server->rc.m_sb.sb_socket, &rfds))
+            FD_ISSET(server->rc.m_sb.sb_socket, &rfds))
             cr = 1;
         }
       if (sr)
@@ -1021,32 +1057,32 @@ serverThread(void *arg)
       socklen_t addrlen = sizeof(struct sockaddr_in);
       STREAMING_SERVER *srv2 = malloc(sizeof(STREAMING_SERVER));
       int sockfd =
-	accept(server->socket, (struct sockaddr *) &addr, &addrlen);
+        accept(server->socket, (struct sockaddr *) &addr, &addrlen);
 
       if (sockfd > 0)
-	{
+        {
 #ifdef linux
           struct sockaddr_in dest;
-	  char destch[16];
+          char destch[16];
           socklen_t destlen = sizeof(struct sockaddr_in);
-	  getsockopt(sockfd, SOL_IP, SO_ORIGINAL_DST, &dest, &destlen);
+          getsockopt(sockfd, SOL_IP, SO_ORIGINAL_DST, &dest, &destlen);
           strcpy(destch, inet_ntoa(dest.sin_addr));
-	  RTMP_Log(RTMP_LOGDEBUG, "%s: accepted connection from %s to %s\n", __FUNCTION__,
-	      inet_ntoa(addr.sin_addr), destch);
+          RTMP_Log(RTMP_LOGDEBUG, "%s: accepted connection from %s to %s\n", __FUNCTION__,
+              inet_ntoa(addr.sin_addr), destch);
 #else
-	  RTMP_Log(RTMP_LOGDEBUG, "%s: accepted connection from %s\n", __FUNCTION__,
-	      inet_ntoa(addr.sin_addr));
+          RTMP_Log(RTMP_LOGDEBUG, "%s: accepted connection from %s\n", __FUNCTION__,
+              inet_ntoa(addr.sin_addr));
 #endif
-	  *srv2 = *server;
-	  srv2->socket = sockfd;
-	  /* Create a new thread and transfer the control to that */
-	  ThreadCreate(doServe, srv2);
-	  RTMP_Log(RTMP_LOGDEBUG, "%s: processed request\n", __FUNCTION__);
-	}
+          *srv2 = *server;
+          srv2->socket = sockfd;
+          /* Create a new thread and transfer the control to that */
+          ThreadCreate(doServe, srv2);
+          RTMP_Log(RTMP_LOGDEBUG, "%s: processed request\n", __FUNCTION__);
+        }
       else
-	{
-	  RTMP_Log(RTMP_LOGERROR, "%s: accept failed", __FUNCTION__);
-	}
+        {
+          RTMP_Log(RTMP_LOGERROR, "%s: accept failed", __FUNCTION__);
+        }
     }
   server->state = STREAMING_STOPPED;
   TFRET();
@@ -1068,17 +1104,17 @@ startStreaming(const char *address, int port)
 
   tmp = 1;
   setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
-				(char *) &tmp, sizeof(tmp) );
+                                (char *) &tmp, sizeof(tmp) );
 
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = inet_addr(address);	//htonl(INADDR_ANY);
+  addr.sin_addr.s_addr = inet_addr(address);        //htonl(INADDR_ANY);
   addr.sin_port = htons(port);
 
   if (bind(sockfd, (struct sockaddr *) &addr, sizeof(struct sockaddr_in)) ==
       -1)
     {
       RTMP_Log(RTMP_LOGERROR, "%s, TCP bind failed for port number: %d", __FUNCTION__,
-	  port);
+          port);
       return 0;
     }
 
@@ -1107,17 +1143,17 @@ stopStreaming(STREAMING_SERVER * server)
       int fd = server->socket;
       server->socket = 0;
       if (server->state == STREAMING_IN_PROGRESS)
-	{
-	  server->state = STREAMING_STOPPING;
+        {
+          server->state = STREAMING_STOPPING;
 
-	  // wait for streaming threads to exit
-	  while (server->state != STREAMING_STOPPED)
-	    msleep(1);
-	}
+          // wait for streaming threads to exit
+          while (server->state != STREAMING_STOPPED)
+            msleep(1);
+        }
 
       if (fd && closesocket(fd))
-	RTMP_Log(RTMP_LOGERROR, "%s: Failed to close listening socket, error %d",
-	    __FUNCTION__, GetSockError());
+        RTMP_Log(RTMP_LOGERROR, "%s: Failed to close listening socket, error %d",
+            __FUNCTION__, GetSockError());
 
       server->state = STREAMING_STOPPED;
     }
@@ -1140,10 +1176,10 @@ main(int argc, char **argv)
   int nStatus = RD_SUCCESS;
 
   // rtmp streaming server
-  char DEFAULT_RTMP_STREAMING_DEVICE[] = "0.0.0.0";	// 0.0.0.0 is any device
+  char DEFAULT_RTMP_STREAMING_DEVICE[] = "0.0.0.0";        // 0.0.0.0 is any device
 
-  char *rtmpStreamingDevice = DEFAULT_RTMP_STREAMING_DEVICE;	// streaming device, default 0.0.0.0
-  int nRtmpStreamingPort = 1935;	// port
+  char *rtmpStreamingDevice = DEFAULT_RTMP_STREAMING_DEVICE;        // streaming device, default 0.0.0.0
+  int nRtmpStreamingPort = 1935;        // port
 
   RTMP_LogPrintf("RTMP Proxy Server %s\n", RTMPDUMP_VERSION);
   RTMP_LogPrintf("(c) 2010 Andrej Stepanchuk, Howard Chu; license: GPL\n\n");
@@ -1176,7 +1212,7 @@ main(int argc, char **argv)
       return RD_FAILED;
     }
   RTMP_LogPrintf("Streaming on rtmp://%s:%d\n", rtmpStreamingDevice,
-	    nRtmpStreamingPort);
+            nRtmpStreamingPort);
 
   while (rtmpServer->state != STREAMING_STOPPED)
     {
