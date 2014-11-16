@@ -3,6 +3,8 @@
 *.so
 *.so.[0-9]
 *.dylib
+*.dll
+*.pc
 rtmpdump
 rtmpgw
 rtmpsrv

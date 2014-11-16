@@ -394,7 +394,7 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
 
       // Print rtmpdump command
       char cmd[4096];
-      sprintf("rtmpdump -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
+      sprintf(cmd, "rtmpdump-2.3\\rtmpdump -V -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
         tcUrl.av_len, tcUrl.av_val,
         server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
         extra.av_len, extra.av_val,
