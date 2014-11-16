@@ -154,7 +154,7 @@ static const AVal av_conn = AVC("conn");
 
 static const char *cst[] = { "client", "server" };
 
-AVal tcUrl, extra, pageUrl;
+char cmdbuf[4096];
 
 // Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
 int
@@ -190,6 +190,7 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
     {
       AMFObject cobj;
       AVal pname, pval;
+      AVal extra;
       int i;
       AMFProp_GetObject(AMF_GetProp(&obj, NULL, 2), &cobj);
       RTMP_LogPrintf("Processing connect\n");
@@ -225,9 +226,6 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             }
           else if (AVMATCH(&pname, &av_tcUrl))
             {
-              tcUrl.av_len = pval.av_len;
-              tcUrl.av_val = malloc(pval.av_len);
-              memcpy(tcUrl.av_val, pval.av_val, tcUrl.av_len);
               char *r1 = NULL, *r2;
               int len;
 
@@ -273,9 +271,6 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             }
           else if (AVMATCH(&pname, &av_pageUrl))
             {
-              pageUrl.av_len = pval.av_len;
-              pageUrl.av_val = malloc(pval.av_len);
-              memcpy(pageUrl.av_val, pval.av_val, pageUrl.av_len);
               server->rc.Link.pageUrl = pval;
               pval.av_val = NULL;
             }
@@ -312,6 +307,18 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             return RD_FAILED;
           }
         }
+
+      sprintf(cmdbuf, "rtmpdump -V -r %.*s/%%.*s -a %.*s -p %.*s -t %.*s -y %%.*s -C %.*s -o %%s\n",
+        server->rc.Link.tcUrl.av_len, server->rc.Link.tcUrl.av_val,
+        //playPath placeholder
+        //server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
+        server->rc.Link.app.av_len, server->rc.Link.app.av_val, //app
+        server->rc.Link.pageUrl.av_len, server->rc.Link.pageUrl.av_val,
+        server->rc.Link.tcUrl.av_len, server->rc.Link.tcUrl.av_val,
+        //playpath placeholder
+        extra.av_len, extra.av_val
+        //filename placeholder
+        );
 
       if (!RTMP_Connect(&server->rc, pack))
         {
@@ -394,11 +401,9 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
 
       // Print rtmpdump command
       char cmd[4096];
-      sprintf(cmd, "rtmpdump-2.3\\rtmpdump -V -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
-        tcUrl.av_len, tcUrl.av_val,
+      sprintf(cmd, cmdbuf,
         server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
-        extra.av_len, extra.av_val,
-        pageUrl.av_len, pageUrl.av_val,
+        server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
         file);
       RTMP_LogPrintf("rtmpdump command: %s\n", cmd);
       system(cmd);
