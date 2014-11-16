@@ -34,6 +34,7 @@
 
 #include <assert.h>
 
+#include "librtmp/rtmp.h"
 #include "librtmp/rtmp_sys.h"
 #include "librtmp/log.h"
 
@@ -175,13 +176,13 @@ static int
 SendConnectResult(RTMP *r, double txn)
 {
   RTMPPacket packet;
-  char pbuf[384], *pend = pbuf+sizeof(pbuf);
+  char pbuf[4096], *pend = pbuf + sizeof(pbuf);
   AMFObject obj;
   AMFObjectProperty p, op;
   AVal av;
 
   packet.m_nChannel = 0x03;     // control channel (invoke)
-  packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
+  packet.m_headerType = RTMP_PACKET_SIZE_LARGE;
   packet.m_packetType = RTMP_PACKET_TYPE_INVOKE;
   packet.m_nTimeStamp = 0;
   packet.m_nInfoField2 = 0;
@@ -200,6 +201,17 @@ SendConnectResult(RTMP *r, double txn)
   *enc++ = 0;
   *enc++ = 0;
   *enc++ = AMF_OBJECT_END;
+  
+  if (r->Link.extras.o_num)
+    {
+      int i;
+      for (i = 0; i < r->Link.extras.o_num; i++)
+        {
+          enc = AMFProp_Encode(&r->Link.extras.o_props[i], enc, pend);
+          if (!enc)
+            return FALSE;
+        }
+    }
 
   *enc++ = AMF_OBJECT;
 
@@ -210,10 +222,6 @@ SendConnectResult(RTMP *r, double txn)
   STR2AVAL(av, "Connection succeeded.");
   enc = AMF_EncodeNamedString(enc, pend, &av_description, &av);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_objectEncoding, r->m_fEncoding);
-#if 0
-  STR2AVAL(av, "58656322c972d6cdf2d776167575045f8484ea888e31c086f7b5ffbd0baec55ce442c2fb");
-  enc = AMF_EncodeNamedString(enc, pend, &av_secureToken, &av);
-#endif
   STR2AVAL(p.p_name, "version");
   STR2AVAL(p.p_vu.p_aval, "3,5,1,525");
   p.p_type = AMF_STRING;
@@ -503,13 +511,17 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
       packet->m_body = NULL;
 
       AMFProp_GetObject(AMF_GetProp(&obj, NULL, 2), &cobj);
+      RTMP_LogPrintf("Processing connect\n");
       for (i=0; i<cobj.o_num; i++)
         {
           pname = cobj.o_props[i].p_name;
           pval.av_val = NULL;
           pval.av_len = 0;
           if (cobj.o_props[i].p_type == AMF_STRING)
-            pval = cobj.o_props[i].p_vu.p_aval;
+            {
+              pval = cobj.o_props[i].p_vu.p_aval;
+              RTMP_LogPrintf("%.*s: %.*s\n", pname.av_len, pname.av_val, pval.av_len, pval.av_val);
+            }
           if (AVMATCH(&pname, &av_app))
             {
               r->Link.app = pval;
@@ -589,6 +601,17 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
           server->arglen += countAMF(&r->Link.extras, &server->argc);
           RTMP_LogPrintf("copied %d extra arguments\n", r->Link.extras.o_num);
         }
+      /*
+      if (!RTMP_Connect(r, packet)) // failed
+        return 1;
+      r->m_bSendCounter = FALSE;
+      */
+      /*if (!SendConnectPacket(r, NULL))
+        {
+          RTMP_Log(RTMP_LOGERROR, "%s, RTMP connect failed.", __FUNCTION__);
+          RTMP_Close(r);
+          return FALSE;
+        }*/
       SendConnectResult(r, txn);
     }
   else if (AVMATCH(&method, &av_createStream))

@@ -393,14 +393,17 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
         file);
 
       // Print rtmpdump command
-      RTMP_LogPrintf("rtmpdump command\n");
-      RTMP_LogPrintf("rtmpdump -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
+      char cmd[4096];
+      sprintf("rtmpdump -r %.*s/%.*s -C %.*s -p %.*s -o %s\n",
         tcUrl.av_len, tcUrl.av_val,
         server->rc.Link.playpath.av_len, server->rc.Link.playpath.av_val,
         extra.av_len, extra.av_val,
         pageUrl.av_len, pageUrl.av_val,
         file);
+      RTMP_LogPrintf("rtmpdump command: %s\n", cmd);
+      system(cmd);
       
+      /*
       out = fopen(file, "wb");
       free(file);
       if (!out)
@@ -422,6 +425,7 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             server->f_head = fl;
           server->f_tail = fl;
         }
+        */
     }
   else if (AVMATCH(&method, &av_onStatus))
     {
