@@ -297,7 +297,7 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
             free(pval.av_val);
         }
 
-      if (obj.o_num >= 3)
+      if (obj.o_num > 3)
         {
           AVal extra_tmp;
         AMFProp_GetString(AMF_GetProp(&obj, NULL, 3), &extra_tmp);
@@ -310,16 +310,6 @@ ServeInvoke(STREAMING_SERVER *server, int which, RTMPPacket *pack, const char *b
           {
             RTMP_Log(RTMP_LOGERROR, "Invalid AMF parameter: %s", optarg);
             return RD_FAILED;
-          }
-        }
-
-      if (obj.o_num > 3)
-        {
-          if (AMFProp_GetBoolean(&obj.o_props[3]))
-            server->rc.Link.lFlags |= RTMP_LF_AUTH;
-          if (obj.o_num > 4)
-          {
-            AMFProp_GetString(&obj.o_props[4], &server->rc.Link.auth);
           }
         }
 

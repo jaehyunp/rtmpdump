@@ -13,8 +13,10 @@ CRYPTO=OPENSSL
 #CRYPTO=GNUTLS
 LIBZ=-lz
 LIB_GNUTLS=-lgnutls -lhogweed -lnettle -lgmp $(LIBZ)
-#LIB_OPENSSL=-lssl -lcrypto $(LIBZ)
-LIB_OPENSSL=-llibeay32 -lssleay32 $(LIBZ)
+LIB_OPENSSL_posix=-lssl -lcrypto $(LIBZ)
+LIB_OPENSSL_darwin=-lssl -lcrypto $(LIBZ)
+LIB_OPENSSL_mingw=-llibeay32 -lssleay32 $(LIBZ)
+LIB_OPENSSL=$(LIB_OPENSSL_$(SYS))
 LIB_POLARSSL=-lpolarssl $(LIBZ)
 CRYPTO_LIB=$(LIB_$(CRYPTO))
 DEF_=-DNO_CRYPTO
@@ -35,8 +37,7 @@ MANDIR=$(DESTDIR)$(mandir)
 
 LIBS_posix=
 LIBS_darwin=
-LIBS_mingw=-lws2_32 -lwinmm -lgdi32
-LIBS_mingw+=-LC:/OpenSSL-Win32/lib
+LIBS_mingw=-lws2_32 -lwinmm -lgdi32 -LC:/OpenSSL-Win32/lib
 LIB_RTMP=-Llibrtmp -lrtmp
 LIBS=$(LIB_RTMP) $(CRYPTO_LIB) $(LIBS_$(SYS)) $(XLIBS)
 
