@@ -1465,7 +1465,6 @@ ReadN(RTMP *r, char *buffer, int n)
             if (!SendBytesReceived(r))
                 return FALSE;
         }
-      RTMP_Log(RTMP_LOGDEBUG, "%s: %d bytes\n", __FUNCTION__, nBytes);
 #ifdef _DEBUG
       fwrite(ptr, 1, nBytes, netstackdump_read);
 #endif
@@ -3560,8 +3559,6 @@ RTMP_ReadPacket(RTMP *r, RTMPPacket *packet)
       return FALSE;
     }
 
-  RTMP_Log(RTMP_LOGDEBUG2, "Gets here 1!");
-
   packet->m_headerType = (hbuf[0] & 0xc0) >> 6;
   packet->m_nChannel = (hbuf[0] & 0x3f);
   header++;
@@ -3593,8 +3590,6 @@ RTMP_ReadPacket(RTMP *r, RTMPPacket *packet)
     }
 
   nSize = packetSize[packet->m_headerType];
-
-  RTMP_Log(RTMP_LOGDEBUG2, "Gets here 2!");
 
   if (packet->m_nChannel >= r->m_channelsAllocatedIn)
     {
@@ -4255,22 +4250,18 @@ RTMPSockBuf_Fill(RTMPSockBuf *sb)
   while (1)
     {
       nBytes = sizeof(sb->sb_buf) - 1 - sb->sb_size - (sb->sb_start - sb->sb_buf);
-      RTMP_Log(RTMP_LOGDEBUG, "while loop in rtmp.c:4252 with sb_size: %d, nBytes: %d", sb->sb_size, nBytes);
 #if defined(CRYPTO) && !defined(NO_SSL)
       if (sb->sb_ssl)
         {
-          RTMP_Log(RTMP_LOGDEBUG, "Here 1");
           nBytes = TLS_read(sb->sb_ssl, sb->sb_start + sb->sb_size, nBytes);
         }
       else
 #endif
         {
-          RTMP_Log(RTMP_LOGDEBUG, "Here 2");
           nBytes = recv(sb->sb_socket, sb->sb_start + sb->sb_size, nBytes, 0);
           if (!nBytes)
             RTMP_Log(RTMP_LOGDEBUG, "Socket closed by server, nBytes: %d", nBytes);
         }
-      RTMP_Log(RTMP_LOGDEBUG, "Here 3");
       if (nBytes != -1)
         {
           sb->sb_size += nBytes;

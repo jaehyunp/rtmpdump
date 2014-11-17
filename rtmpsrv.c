@@ -171,9 +171,10 @@ SAVC(code);
 SAVC(description);
 SAVC(secureToken);
 SAVC(conn);
+SAVC(sendFileRequest);
 
 static int
-SendConnectResult(RTMP *r, int txn)
+SendConnectResult(RTMP *r, double txn)
 {
   RTMPPacket packet;
   char pbuf[384], *pend = pbuf + sizeof(pbuf);
@@ -194,7 +195,7 @@ SendConnectResult(RTMP *r, int txn)
   enc = AMF_EncodeNumber(enc, pend, txn);
   *enc++ = AMF_OBJECT;
 
-  STR2AVAL(av, "FMS/3,5,7,7009");
+  STR2AVAL(av, "FMS/5,0,6,6102");
   enc = AMF_EncodeNamedString(enc, pend, &av_fmsVer, &av);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_capabilities, 31.0);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_mode, 1.0);
@@ -212,7 +213,7 @@ SendConnectResult(RTMP *r, int txn)
   enc = AMF_EncodeNamedString(enc, pend, &av_description, &av);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_objectEncoding, r->m_fEncoding);
   STR2AVAL(p.p_name, "version");
-  STR2AVAL(p.p_vu.p_aval, "3,5,7,7009");
+  STR2AVAL(p.p_vu.p_aval, "5,0,6,6102");
   p.p_type = AMF_STRING;
   obj.o_num = 1;
   obj.o_props = &p;
@@ -230,7 +231,7 @@ SendConnectResult(RTMP *r, int txn)
 }
 
 static int
-SendCreateStream(RTMP *r, int txn)
+SendResultFileRequest(RTMP *r, double txn, double ID, char *extra, int extra_len)
 {
   RTMPPacket packet;
   char pbuf[256], *pend = pbuf + sizeof(pbuf);
@@ -247,14 +248,19 @@ SendCreateStream(RTMP *r, int txn)
   enc = AMF_EncodeString(enc, pend, &av__result);
   enc = AMF_EncodeNumber(enc, pend, txn);
   *enc++ = AMF_NULL;
-  
+
+  int i;
+  for (i = 0; i < extra_len; i++) *enc++ = extra[i];
+  *enc++ = AMF3_NULL;
+
   packet.m_nBodySize = enc - packet.m_body;
 
-  return RTMP_SendPacket(r, &packet, TRUE);
+  return RTMP_SendPacket(r, &packet, FALSE);
 }
 
+
 static int
-SendResultNumber(RTMP *r, int txn, double ID)
+SendResultNumber(RTMP *r, double txn, double ID)
 {
   RTMPPacket packet;
   char pbuf[256], *pend = pbuf + sizeof(pbuf);
@@ -292,7 +298,7 @@ static int
 SendPlayStart(RTMP *r)
 {
   RTMPPacket packet;
-  char pbuf[512], *pend = pbuf+sizeof(pbuf);
+  char pbuf[512], *pend = pbuf + sizeof(pbuf);
 
   packet.m_nChannel = 0x03;     // control channel (invoke)
   packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
@@ -324,7 +330,7 @@ static int
 SendPlayStop(RTMP *r)
 {
   RTMPPacket packet;
-  char pbuf[512], *pend = pbuf+sizeof(pbuf);
+  char pbuf[512], *pend = pbuf + sizeof(pbuf);
 
   packet.m_nChannel = 0x03;     // control channel (invoke)
   packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
@@ -510,7 +516,7 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *pack, const char *bo
   AMF_Dump(&obj);
   AVal method;
   AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
-  int txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
+  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
   RTMP_Log(RTMP_LOGDEBUG, "%s, client invoking <%s>", __FUNCTION__, method.av_val);
 
   if (AVMATCH(&method, &av_connect))
@@ -597,15 +603,13 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *pack, const char *bo
           memcpy(r->Link.extras.o_props, obj.o_props+3, i*sizeof(AMFObjectProperty));
           obj.o_num = 3;
           server->arglen += countAMF(&r->Link.extras, &server->argc);
-          RTMP_LogPrintf("copied %d extra arguments\n", r->Link.extras.o_num);
         }
       
       SendConnectResult(r, txn);
     }
   else if (AVMATCH(&method, &av_createStream))
     {
-      ++server->streamID;
-      SendCreateStream(r, txn);
+      SendResultNumber(r, txn, ++server->streamID);
     }
   else if (AVMATCH(&method, &av_getStreamLength))
     {
@@ -620,6 +624,13 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *pack, const char *bo
       server->argc += 2;
       r->Link.usherToken = usherToken;
     }
+  else if (AVMATCH(&method, &av_sendFileRequest)) // hack for nicovideo
+    {
+      nRes--;
+      RTMP_LogPrintf("Parsed bytes: %d, remaining bytes: %d\n", nRes, nBodySize - nRes);
+      SendResultNumber(r, 2.0, 1.0);
+      SendResultFileRequest(r, 3.0, 1.0, &body[nRes], nBodySize - nRes);
+    }
   else if (AVMATCH(&method, &av_play))
     {
       char *file, *p, *q, *cmd, *ptr;
@@ -628,7 +639,6 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *pack, const char *bo
       uint32_t now;
       RTMPPacket pc = {0};
       AMFProp_GetString(AMF_GetProp(&obj, NULL, 3), &r->Link.playpath);
-      RTMP_LogPrintf("got play signal\n");
       /*
       r->Link.seekTime = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 4));
       if (obj.o_num > 5)
