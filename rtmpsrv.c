@@ -176,13 +176,13 @@ static int
 SendConnectResult(RTMP *r, double txn)
 {
   RTMPPacket packet;
-  char pbuf[4096], *pend = pbuf + sizeof(pbuf);
+  char pbuf[384], *pend = pbuf + sizeof(pbuf);
   AMFObject obj;
   AMFObjectProperty p, op;
   AVal av;
 
   packet.m_nChannel = 0x03;     // control channel (invoke)
-  packet.m_headerType = RTMP_PACKET_SIZE_LARGE;
+  packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
   packet.m_packetType = RTMP_PACKET_TYPE_INVOKE;
   packet.m_nTimeStamp = 0;
   packet.m_nInfoField2 = 0;
@@ -194,7 +194,7 @@ SendConnectResult(RTMP *r, double txn)
   enc = AMF_EncodeNumber(enc, pend, txn);
   *enc++ = AMF_OBJECT;
 
-  STR2AVAL(av, "FMS/3,5,1,525");
+  STR2AVAL(av, "FMS/3,5,7,7009");
   enc = AMF_EncodeNamedString(enc, pend, &av_fmsVer, &av);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_capabilities, 31.0);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_mode, 1.0);
@@ -202,17 +202,6 @@ SendConnectResult(RTMP *r, double txn)
   *enc++ = 0;
   *enc++ = AMF_OBJECT_END;
   
-  if (r->Link.extras.o_num)
-    {
-      int i;
-      for (i = 0; i < r->Link.extras.o_num; i++)
-        {
-          enc = AMFProp_Encode(&r->Link.extras.o_props[i], enc, pend);
-          if (!enc)
-            return FALSE;
-        }
-    }
-
   *enc++ = AMF_OBJECT;
 
   STR2AVAL(av, "status");
@@ -223,7 +212,7 @@ SendConnectResult(RTMP *r, double txn)
   enc = AMF_EncodeNamedString(enc, pend, &av_description, &av);
   enc = AMF_EncodeNamedNumber(enc, pend, &av_objectEncoding, r->m_fEncoding);
   STR2AVAL(p.p_name, "version");
-  STR2AVAL(p.p_vu.p_aval, "3,5,1,525");
+  STR2AVAL(p.p_vu.p_aval, "3,5,7,7009");
   p.p_type = AMF_STRING;
   obj.o_num = 1;
   obj.o_props = &p;
@@ -244,7 +233,7 @@ static int
 SendResultNumber(RTMP *r, double txn, double ID)
 {
   RTMPPacket packet;
-  char pbuf[256], *pend = pbuf+sizeof(pbuf);
+  char pbuf[256], *pend = pbuf + sizeof(pbuf);
 
   packet.m_nChannel = 0x03;     // control channel (invoke)
   packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
@@ -498,7 +487,7 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
   AMF_Dump(&obj);
   AVal method;
   AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
-  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
+  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1)); // Transaction ID
   RTMP_Log(RTMP_LOGDEBUG, "%s, client invoking <%s>", __FUNCTION__, method.av_val);
 
   if (AVMATCH(&method, &av_connect))
@@ -852,18 +841,7 @@ ServePacket(STREAMING_SERVER *server, RTMP *r, RTMPPacket *packet)
             __FUNCTION__, packet->m_nBodySize);
         //RTMP_LogHex(packet.m_body, packet.m_nBodySize);
 
-        // some DEBUG code
-        /*RTMP_LIB_AMFObject obj;
-           int nRes = obj.Decode(packet.m_body+1, packet.m_nBodySize-1);
-           if(nRes < 0) {
-           RTMP_Log(RTMP_LOGERROR, "%s, error decoding AMF3 packet", __FUNCTION__);
-           //return;
-           }
-
-           obj.Dump(); */
-
-        if (ServeInvoke(server, r, packet, 1))
-          RTMP_Close(r);
+        ret = ServeInvoke(server, r, packet, 1);
         break;
       }
     case RTMP_PACKET_TYPE_INFO:
@@ -877,12 +855,12 @@ ServePacket(STREAMING_SERVER *server, RTMP *r, RTMPPacket *packet)
           packet->m_nBodySize);
       //RTMP_LogHex(packet.m_body, packet.m_nBodySize);
 
-      if (ServeInvoke(server, r, packet, 0))
-        RTMP_Close(r);
+      ret = ServeInvoke(server, r, packet, 0);
       break;
 
     case RTMP_PACKET_TYPE_FLASH_VIDEO:
         break;
+
     default:
       RTMP_Log(RTMP_LOGDEBUG, "%s, unknown packet type received: 0x%02x", __FUNCTION__,
           packet->m_packetType);
