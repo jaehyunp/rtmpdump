@@ -487,7 +487,7 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
   AMF_Dump(&obj);
   AVal method;
   AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
-  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1)); // Transaction ID
+  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
   RTMP_Log(RTMP_LOGDEBUG, "%s, client invoking <%s>", __FUNCTION__, method.av_val);
 
   if (AVMATCH(&method, &av_connect))
@@ -841,7 +841,7 @@ ServePacket(STREAMING_SERVER *server, RTMP *r, RTMPPacket *packet)
             __FUNCTION__, packet->m_nBodySize);
         //RTMP_LogHex(packet.m_body, packet.m_nBodySize);
 
-        ret = ServeInvoke(server, r, packet, 1);
+		ret = ServeInvoke(server, r, packet, 1);
         break;
       }
     case RTMP_PACKET_TYPE_INFO:
