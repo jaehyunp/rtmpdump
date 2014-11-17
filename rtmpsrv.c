@@ -173,7 +173,7 @@ SAVC(secureToken);
 SAVC(conn);
 
 static int
-SendConnectResult(RTMP *r, double txn)
+SendConnectResult(RTMP *r, int txn)
 {
   RTMPPacket packet;
   char pbuf[384], *pend = pbuf + sizeof(pbuf);
@@ -230,7 +230,31 @@ SendConnectResult(RTMP *r, double txn)
 }
 
 static int
-SendResultNumber(RTMP *r, double txn, double ID)
+SendCreateStream(RTMP *r, int txn)
+{
+  RTMPPacket packet;
+  char pbuf[256], *pend = pbuf + sizeof(pbuf);
+
+  packet.m_nChannel = 0x03;     // control channel (invoke)
+  packet.m_headerType = 1; /* RTMP_PACKET_SIZE_MEDIUM; */
+  packet.m_packetType = RTMP_PACKET_TYPE_INVOKE;
+  packet.m_nTimeStamp = 0;
+  packet.m_nInfoField2 = 0;
+  packet.m_hasAbsTimestamp = 0;
+  packet.m_body = pbuf + RTMP_MAX_HEADER_SIZE;
+
+  char *enc = packet.m_body;
+  enc = AMF_EncodeString(enc, pend, &av__result);
+  enc = AMF_EncodeNumber(enc, pend, txn);
+  *enc++ = AMF_NULL;
+  
+  packet.m_nBodySize = enc - packet.m_body;
+
+  return RTMP_SendPacket(r, &packet, TRUE);
+}
+
+static int
+SendResultNumber(RTMP *r, int txn, double ID)
 {
   RTMPPacket packet;
   char pbuf[256], *pend = pbuf + sizeof(pbuf);
@@ -460,14 +484,13 @@ dumpAMF(AMFObject *obj, char *ptr, AVal *argv, int *argc)
 
 // Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
 int
-ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int offset)
+ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *pack, const char *body)
 {
-  const char *body;
-  unsigned int nBodySize;
   int ret = 0, nRes;
+  int nBodySize = pack->m_nBodySize;
 
-  body = packet->m_body + offset;
-  nBodySize = packet->m_nBodySize - offset;
+  if (body > pack->m_body)
+    nBodySize--;
 
   if (body[0] != 0x02)                // make sure it is a string method name we start with
     {
@@ -487,18 +510,18 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
   AMF_Dump(&obj);
   AVal method;
   AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
-  double txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
+  int txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
   RTMP_Log(RTMP_LOGDEBUG, "%s, client invoking <%s>", __FUNCTION__, method.av_val);
 
   if (AVMATCH(&method, &av_connect))
     {
       AMFObject cobj;
       AVal pname, pval;
+
+      server->connect = pack->m_body;
+      pack->m_body = NULL;
+
       int i;
-
-      server->connect = packet->m_body;
-      packet->m_body = NULL;
-
       AMFProp_GetObject(AMF_GetProp(&obj, NULL, 2), &cobj);
       RTMP_LogPrintf("Processing connect\n");
       for (i=0; i<cobj.o_num; i++)
@@ -537,6 +560,7 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
           else if (AVMATCH(&pname, &av_tcUrl))
             {
               r->Link.tcUrl = pval;
+              r->Link.protocol = RTMP_PROTOCOL_RTMP;
               pval.av_val = NULL;
               server->arglen += 6 + pval.av_len;
               server->argc += 2;
@@ -560,25 +584,10 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
             {
               r->m_fEncoding = cobj.o_props[i].p_vu.p_number;
             }
+          if (pval.av_val)
+            free(pval.av_val);
         }
-        /*
-      if (obj.o_num > 3)
-        {
-          AVal extra;
-          AVal extra_tmp;
-        AMFProp_GetString(AMF_GetProp(&obj, NULL, 3), &extra_tmp);
-        int len;
-        len = extra_tmp.av_len + 2;
-        extra.av_val = malloc(len);
-        extra.av_len = snprintf(extra.av_val, len,
-                               "S:%.*s", extra_tmp.av_len, extra_tmp.av_val);
-        RTMP_LogPrintf("extra: %.*s\n", extra.av_len, extra.av_val);
-        if (!RTMP_SetOpt(&server->rc, &av_conn, &extra))
-          {
-            RTMP_Log(RTMP_LOGERROR, "Invalid AMF parameter: %s", optarg);
-            return RD_FAILED;
-          }
-        }*/
+
       /* Still have more parameters? Copy them */
       if (obj.o_num > 3)
         {
@@ -590,22 +599,13 @@ ServeInvoke(STREAMING_SERVER *server, RTMP * r, RTMPPacket *packet, unsigned int
           server->arglen += countAMF(&r->Link.extras, &server->argc);
           RTMP_LogPrintf("copied %d extra arguments\n", r->Link.extras.o_num);
         }
-      /*
-      if (!RTMP_Connect(r, packet)) // failed
-        return 1;
-      r->m_bSendCounter = FALSE;
-      */
-      /*if (!SendConnectPacket(r, NULL))
-        {
-          RTMP_Log(RTMP_LOGERROR, "%s, RTMP connect failed.", __FUNCTION__);
-          RTMP_Close(r);
-          return FALSE;
-        }*/
+      
       SendConnectResult(r, txn);
     }
   else if (AVMATCH(&method, &av_createStream))
     {
-      SendResultNumber(r, txn, ++server->streamID);
+      ++server->streamID;
+      SendCreateStream(r, txn);
     }
   else if (AVMATCH(&method, &av_getStreamLength))
     {
@@ -803,62 +803,68 @@ ServePacket(STREAMING_SERVER *server, RTMP *r, RTMPPacket *packet)
   switch (packet->m_packetType)
     {
     case RTMP_PACKET_TYPE_CHUNK_SIZE:
+      // chunk size
 //      HandleChangeChunkSize(r, packet);
       break;
 
     case RTMP_PACKET_TYPE_BYTES_READ_REPORT:
+      // bytes read report
       break;
 
     case RTMP_PACKET_TYPE_CONTROL:
+      // ctrl
 //      HandleCtrl(r, packet);
       break;
 
     case RTMP_PACKET_TYPE_SERVER_BW:
+      // server bw
 //      HandleServerBW(r, packet);
       break;
 
     case RTMP_PACKET_TYPE_CLIENT_BW:
+      // client bw
  //     HandleClientBW(r, packet);
       break;
 
     case RTMP_PACKET_TYPE_AUDIO:
+      // audio data
       //RTMP_Log(RTMP_LOGDEBUG, "%s, received: audio %lu bytes", __FUNCTION__, packet.m_nBodySize);
       break;
 
     case RTMP_PACKET_TYPE_VIDEO:
+      // video data
       //RTMP_Log(RTMP_LOGDEBUG, "%s, received: video %lu bytes", __FUNCTION__, packet.m_nBodySize);
       break;
 
     case RTMP_PACKET_TYPE_FLEX_STREAM_SEND:
+      // flex stream send
       break;
 
     case RTMP_PACKET_TYPE_FLEX_SHARED_OBJECT:
+      // flex shared object
       break;
 
     case RTMP_PACKET_TYPE_FLEX_MESSAGE:
+      // flex message
       {
-        RTMP_Log(RTMP_LOGDEBUG, "%s, flex message, size %u bytes, not fully supported",
-            __FUNCTION__, packet->m_nBodySize);
-        //RTMP_LogHex(packet.m_body, packet.m_nBodySize);
-
-		ret = ServeInvoke(server, r, packet, 1);
+		    ret = ServeInvoke(server, r, packet, packet->m_body + 1);
         break;
       }
     case RTMP_PACKET_TYPE_INFO:
+      // metadata (notify)
       break;
 
     case RTMP_PACKET_TYPE_SHARED_OBJECT:
+      /* shared object */
       break;
 
     case RTMP_PACKET_TYPE_INVOKE:
-      RTMP_Log(RTMP_LOGDEBUG, "%s, received: invoke %u bytes", __FUNCTION__,
-          packet->m_nBodySize);
-      //RTMP_LogHex(packet.m_body, packet.m_nBodySize);
-
-      ret = ServeInvoke(server, r, packet, 0);
+      // invoke
+      ret = ServeInvoke(server, r, packet, packet->m_body);
       break;
 
     case RTMP_PACKET_TYPE_FLASH_VIDEO:
+      /* flv */
         break;
 
     default:
@@ -893,18 +899,18 @@ controlServerThread(void *unused)
 }
 
 
-void doServe(STREAMING_SERVER * server,        // server socket and state (our listening socket)
+void doServe(STREAMING_SERVER *server,        // server socket and state (our listening socket)
   int sockfd        // client connection socket
   )
 {
-  server->state = STREAMING_IN_PROGRESS;
-
   RTMP *rtmp = RTMP_Alloc();                /* our session with the real client */
   RTMPPacket packet = { 0 };
 
   // timeout for http requests
   fd_set fds;
   struct timeval tv;
+
+  server->state = STREAMING_IN_PROGRESS;
 
   memset(&tv, 0, sizeof(struct timeval));
   tv.tv_sec = 5;
@@ -921,18 +927,16 @@ void doServe(STREAMING_SERVER * server,        // server socket and state (our l
     {
       RTMP_Init(rtmp);
       rtmp->m_sb.sb_socket = sockfd;
-      if (sslCtx && !RTMP_TLS_Accept(rtmp, sslCtx))
-        {
-          RTMP_Log(RTMP_LOGERROR, "TLS handshake failed");
-          goto cleanup;
-        }
       if (!RTMP_Serve(rtmp))
         {
           RTMP_Log(RTMP_LOGERROR, "Handshake failed");
           goto cleanup;
         }
     }
+
   server->arglen = 0;
+
+  /* Just process the Connect request */
   while (RTMP_IsConnected(rtmp) && RTMP_ReadPacket(rtmp, &packet))
     {
       if (!RTMPPacket_IsReady(&packet))
@@ -1121,7 +1125,7 @@ main(int argc, char **argv)
   memset(&defaultRTMPRequest, 0, sizeof(RTMP_REQUEST));
 
   defaultRTMPRequest.rtmpport = -1;
-  defaultRTMPRequest.protocol = RTMP_PROTOCOL_UNDEFINED;
+  defaultRTMPRequest.protocol = RTMP_PROTOCOL_RTMP;
   defaultRTMPRequest.bLiveStream = FALSE;        // is it a live stream? then we can't seek/resume
 
   defaultRTMPRequest.timeout = 300;        // timeout connection afte 300 seconds
